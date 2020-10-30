@@ -7,7 +7,7 @@ T. Nielsen, A. Khodabakhsh, C. Busch, “Unit-Selection Based Facial Video Manip
 To download the corresponding dataset, please visit:
 https://ali.khodabakhsh.org/research/morphcut/
 
-The purpose of this repository is to provide the core sections of the proposed method and by no means provides a functional implementation. 
+The purpose of this repository is to provide the core sections of the proposed method and by no means provides a functional implementation. The codes have dependency on the CyclicGen python files and these files should be copied under the same directory.
 
 To read more about CyclicGen, please refer to:
 https://github.com/alex04072000/CyclicGen
