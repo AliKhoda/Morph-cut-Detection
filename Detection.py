@@ -187,7 +187,8 @@ def readtxt(txt):
     mat = pd.read_csv(txt+'.tsv', sep='\t').to_numpy()
     return mat[1:-1]
 
-def pickletodataframe(split, base):
+# Load files in folder to a dataframe
+def dirtodataframe(split, base):
     pred_error_dir = os.path.join(base, split, 'prediction_errors')
     label_list = os.listdir(os.path.join(base, split, 'labels'))
     
@@ -204,6 +205,7 @@ def pickletodataframe(split, base):
     dataframe = dataframe.reset_index(drop=True)
     return dataframe
 
+# Concatenate frames and create tensorflow dataset
 def create_dataset_concat_gray(dataframe):
     num_features = imgsize*imgsize*3
     header_offset = npy_header_offset(dataframe.to_numpy()[0,0])
@@ -217,6 +219,7 @@ def create_dataset_concat_gray(dataframe):
     labdataset = tf.data.Dataset.from_tensor_slices(labels)
     return tf.data.Dataset.zip((imgdataset, labdataset))
 
+# Get ratio of real and fake
 def get_ratio(dataframe):
     labels = list(np.array([dataframe.to_numpy()[2:-2,1] == k for k in output_classes][0]).T)
     return sum(labels)/len(labels)
@@ -230,19 +233,21 @@ output_classes=['fake','real']
 
 base = ''# features and labels directory
 
-Train = pickletodataframe('train',base)
-Val = pickletodataframe('dev',base)
-Test = pickletodataframe('test',base)
+# create train, val, and test dataframes
+Train = dirtodataframe('train',base)
+Val = dirtodataframe('dev',base)
+Test = dirtodataframe('test',base)
 
+# define class_weights
 ratio = get_ratio(Train)
 class_weights = {0:1/(2*ratio), 1:1/(2*(1-ratio))}
 
+# Create tensorflow datasets for train, val, and test sets
 traingen = create_dataset_concat_gray(Train).batch(batchsize)#.prefetch(100)
 valgen = create_dataset_concat_gray(Val).batch(batchsize)#.prefetch(100)
 testgen = create_dataset_concat_gray(Test).batch(batchsize)#.prefetch(100)
 
-netname = 'smallCNN'
-
+# Define model
 model = tf.keras.models.Sequential()
 model.add(layers.Conv2D(128, kernel_size=(3, 3),
                  activation='relu',
@@ -262,16 +267,21 @@ model.add(layers.Dense(2, activation='softmax'))
 
 print(model.summary())
 
+# Compile
 model.compile(
     optimizer=tf.keras.optimizers.Adam(.0001),
     loss=tf.keras.losses.binary_crossentropy,
     metrics=['acc'])
 
+# Train
 traingen.cache()
 log = model.fit(traingen, initial_epoch=0, epochs=12, verbose=1, validation_data=valgen, class_weight=class_weights,
                       max_queue_size=workers*10, workers=workers, use_multiprocessing=True, shuffle=True)
 
+# Evaluate
 elog = model.evaluate(testgen, max_queue_size=workers*10, workers=workers, use_multiprocessing=False, verbose=1)
+
+# Score
 prob = model.predict(valgen)
 
 
