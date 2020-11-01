@@ -23,11 +23,6 @@ def bigbox(txt):
 
     return [minX, minY, maxX, maxY]
 
-# Read label file
-def readtxt(txt):
-    mat = pd.read_csv(txt+'.txt', sep='\t').to_numpy()
-    return mat[1:-1]
-
 # Get a specific frame from a video
 def get_image(filepath, frame):
     
@@ -86,13 +81,6 @@ def get_diff(sess, vid, frame):
 # pretrained_model_checkpoint_path
 model_cp = os.path.join(base,'ckpt/CyclicGen_large/model')
 
-# Video and label dirs
-viddir = os.path.join(base, 'morphcuts')
-labdir = os.path.join(base, 'Labels')
-
-# Output frame prediction folder
-dcfdir = os.path.join(base, 'Cropped_Face_Differences')
-
 # input placeholder parameter initialization
 H, W = (480, 852)
 
@@ -138,7 +126,12 @@ with tf.Graph().as_default():
 
 # For each frame in each video, calculate prediction error and dump to the output folder
 for mode in ['train', 'dev', 'test']:
-    vidlist = ''# List of videos for the mode
+    # Video and label dirs
+    viddir = os.path.join(base, mode, 'videos')
+    labdir = os.path.join(base, mode, 'labels')
+
+    # Output frame prediction folder
+    dcfdir = os.path.join(base, mode, 'prediction_errors')
   
     for vid in vidlist:
         # define label file
@@ -177,4 +170,108 @@ for mode in ['train', 'dev', 'test']:
 
             
 # Part 2: Detection
+
+import os
+import datetime
+import pickle
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+
+import matplotlib.pyplot as plt
+
+layers = tf.keras.layers
+
+# Read label file
+def readtxt(txt):
+    mat = pd.read_csv(txt+'.tsv', sep='\t').to_numpy()
+    return mat[1:-1]
+
+def pickletodataframe(split, base):
+    pred_error_dir = os.path.join(base, split, 'prediction_errors')
+    label_list = os.listdir(os.path.join(base, split, 'labels'))
+    
+    files = []
+    labels = []
+    for label in label_list:
+        labels = readtxt(label)['Label']
+        
+        for j,k in enumerate(labels):
+            files.append(os.path.join(pred_error_dir,os.path.split(label)[1],f'{j+1}.npy'))
+            labels.append('real' if k == 0 else 'fake')
+
+    dataframe = pd.DataFrame(data={'filename': files, 'class': labels})
+    dataframe = dataframe.reset_index(drop=True)
+    return dataframe
+
+def create_dataset_concat_gray(dataframe):
+    num_features = imgsize*imgsize*3
+    header_offset = npy_header_offset(dataframe.to_numpy()[0,0])
+    
+    imgdataset = tf.data.FixedLengthRecordDataset(dataframe.to_numpy()[:,0], num_features * dtype.size, header_bytes=header_offset)
+    imgdataset = imgdataset.map(lambda s: tf.image.rgb_to_grayscale(tf.reshape(tf.io.decode_raw(s, dtype), (imgsize,imgsize, 3))))
+    imgdataset = imgdataset.window(size=5, shift=1, stride=1, drop_remainder=True).flat_map(lambda x: x.batch(5))
+    imgdataset = imgdataset.map(lambda x: tf.reshape(x, (imgsize*5,imgsize,1)))
+    
+    labels = list(np.array([dataframe.to_numpy()[2:-2,1] == k for k in output_classes]).T.astype(np.float))
+    labdataset = tf.data.Dataset.from_tensor_slices(labels)
+    return tf.data.Dataset.zip((imgdataset, labdataset))
+
+def get_ratio(dataframe):
+    labels = list(np.array([dataframe.to_numpy()[2:-2,1] == k for k in output_classes][0]).T)
+    return sum(labels)/len(labels)
+
+dtype = tf.float32
+imgsize = 64
+epochs = 20
+workers = 4
+batchsize = 32
+output_classes=['fake','real']
+
+base = ''# features and labels directory
+
+Train = pickletodataframe('train',base)
+Val = pickletodataframe('dev',base)
+Test = pickletodataframe('test',base)
+
+ratio = get_ratio(Train)
+class_weights = {0:1/(2*ratio), 1:1/(2*(1-ratio))}
+
+traingen = create_dataset_concat_gray(Train).batch(batchsize)#.prefetch(100)
+valgen = create_dataset_concat_gray(Val).batch(batchsize)#.prefetch(100)
+testgen = create_dataset_concat_gray(Test).batch(batchsize)#.prefetch(100)
+
+netname = 'smallCNN'
+
+model = tf.keras.models.Sequential()
+model.add(layers.Conv2D(128, kernel_size=(3, 3),
+                 activation='relu',
+                 input_shape=(64, 64, 5)))
+model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+model.add(layers.Conv2D(128, (3, 3), activation='relu'))
+model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+model.add(layers.Conv2D(256, (3, 3), activation='relu'))
+model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+model.add(layers.Conv2D(512, (3, 3), activation='relu'))
+model.add(layers.MaxPooling2D(pool_size=(2, 2)))
+model.add(layers.Dropout(0.25))
+model.add(layers.Flatten())
+model.add(layers.Dense(512, activation='relu'))
+model.add(layers.Dropout(0.5))
+model.add(layers.Dense(2, activation='softmax'))
+
+print(model.summary())
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(.0001),
+    loss=tf.keras.losses.binary_crossentropy,
+    metrics=['acc'])
+
+traingen.cache()
+log = model.fit(traingen, initial_epoch=0, epochs=12, verbose=1, validation_data=valgen, class_weight=class_weights,
+                      max_queue_size=workers*10, workers=workers, use_multiprocessing=True, shuffle=True)
+
+elog = model.evaluate(testgen, max_queue_size=workers*10, workers=workers, use_multiprocessing=False, verbose=1)
+prob = model.predict(valgen)
+
 
