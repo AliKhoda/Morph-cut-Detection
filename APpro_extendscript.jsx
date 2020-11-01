@@ -22,7 +22,7 @@ function createSequence(clip, inP, outP){
     project.createNewSequenceFromClips(name+'_sequence', [clip]); // Create new sequence using projectitems
 }
 function addTransitions(){
-    var file = new File("Morph Cut\\extendscripts\\hello.au3");
+    var file = new File("transition.au3");
     file.execute();
     $.sleep(1000);
 }
@@ -59,9 +59,9 @@ while (line != ''){
         addTransitions();
         activeSeq.setInPoint(0.5);
         activeSeq.setOutPoint(out3-in1-(in3-out2)-(in2-out1)-0.5);
-        activeSeq.exportAsMediaDirect('Morph Cut\\morphcut_banners\\'+name, 'Morph Cut\\premiere-preset.epr', app.encoder.ENCODE_IN_TO_OUT);
+        activeSeq.exportAsMediaDirect('Morph Cut\\morphcut_banners\\'+name, 'premiere-preset.epr', app.encoder.ENCODE_IN_TO_OUT);
         $.sleep(120000);
-        activeSeq.exportAsMediaDirect('Morph Cut\\morphcuts\\'+name, 'Morph Cut\\premiere-preset.epr', app.encoder.ENCODE_IN_TO_OUT);
+        activeSeq.exportAsMediaDirect('Morph Cut\\morphcuts\\'+name, 'premiere-preset.epr', app.encoder.ENCODE_IN_TO_OUT);
         project.deleteSequence(activeSeq);
     }
 
