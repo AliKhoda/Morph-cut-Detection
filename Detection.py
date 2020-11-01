@@ -205,6 +205,24 @@ def dirtodataframe(split, base):
     dataframe = dataframe.reset_index(drop=True)
     return dataframe
 
+# Calculate npy header offset
+def npy_header_offset(npy_path):
+    with open(str(npy_path), 'rb') as f:
+        if f.read(6) != b'\x93NUMPY':
+            raise ValueError('Invalid NPY file.')
+        version_major, version_minor = f.read(2)
+        if version_major == 1:
+            header_len_size = 2
+        elif version_major == 2:
+            header_len_size = 4
+        else:
+            raise ValueError('Unknown NPY file version {}.{}.'.format(version_major, version_minor))
+        header_len = sum(b << (8 * i) for i, b in enumerate(f.read(header_len_size)))
+        header = f.read(header_len)
+        if not header.endswith(b'\n'):
+            raise ValueError('Invalid NPY file.')
+        return f.tell()
+
 # Concatenate frames and create tensorflow dataset
 def create_dataset_concat_gray(dataframe):
     num_features = imgsize*imgsize*3
